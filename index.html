@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LA Encampment Vulnerability Digital Twin</title>
+<meta name="description" content="Interactive digital twin for LA encampment vulnerability: an interpretable SNN-2 model on hexagonal grids, with sliders, explanations, and what-if optimization.">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar" aria-label="Controls">
+    <section>
+      <h2>Grid resolution</h2>
+      <fieldset>
+        <legend>Hexagon size</legend>
+        <div id="res-radios" class="radios"></div>
+      </fieldset>
+    </section>
+    <section>
+      <h2>Map style</h2>
+      <fieldset>
+        <legend>Basemap</legend>
+        <div class="radios inline">
+          <label><input type="radio" name="basemap" value="light" checked> Light</label>
+          <label><input type="radio" name="basemap" value="dark"> Dark</label>
+        </div>
+      </fieldset>
+    </section>
+    <section>
+      <h2>Jump to a hex</h2>
+      <label class="field">Search by hex ID
+        <input id="hex-search" list="hex-list" autocomplete="off" spellcheck="false" placeholder="e.g. AS-44">
+      </label>
+      <datalist id="hex-list"></datalist>
+      <p id="hex-search-msg" class="muted small" role="status"></p>
+    </section>
+  </aside>
+
+  <main class="main">
+    <h1>Interactive Digital Twin for LA Encampment Vulnerability</h1>
+
+    <div id="loading" class="loading" role="status">Loading model and map…</div>
+
+    <div id="app" hidden>
+      <section class="top">
+        <div class="map-col">
+          <div id="map" class="map" aria-label="Map of Los Angeles hexagons colored by predicted vulnerability"></div>
+        </div>
+        <div class="headline">
+          <h3 id="hex-title"></h3>
+          <p id="centroid-note" class="muted small"></p>
+          <div class="metrics">
+            <div class="metric"><div class="m-label">Predicted vulnerability</div><div id="m-pred" class="m-value"></div><div id="m-delta" class="m-delta"></div></div>
+            <div class="metric"><div class="m-label">Baseline (real values)</div><div id="m-base" class="m-value"></div></div>
+          </div>
+          <div id="box-up" class="callout up" hidden></div>
+          <div id="box-down" class="callout down" hidden></div>
+          <button id="btn-reset" class="btn wide">Reset sliders to real values</button>
+        </div>
+      </section>
+
+      <hr>
+
+      <div class="tabs" role="tablist" aria-label="Sections">
+        <button role="tab" id="tab-scenarios" aria-controls="panel-scenarios" aria-selected="true">🏘️ Scenarios</button>
+        <button role="tab" id="tab-sliders" aria-controls="panel-sliders" aria-selected="false" tabindex="-1">🎚️ Adjust Variables</button>
+        <button role="tab" id="tab-why" aria-controls="panel-why" aria-selected="false" tabindex="-1">📊 Why This Score</button>
+        <button role="tab" id="tab-opt" aria-controls="panel-opt" aria-selected="false" tabindex="-1">🎯 Optimize This Hex</button>
+      </div>
+
+      <section id="panel-scenarios" role="tabpanel" aria-labelledby="tab-scenarios">
+        <p>Per the project's variable-role table: <b>Frozen context</b> (socioeconomic, demographic, crime, hazard, roadway, hydrology, land cover) is never changed. <b>Scenario inputs</b> = every other (Facilities/Services) variable is eligible. Applied only to the highest-vulnerability hexes, not the whole grid.</p>
+        <p id="scen-eligible" class="muted small"></p>
+        <div class="two">
+          <label class="slider-row">Apply to top X% highest-vulnerability hexes <output id="scen-pct-out">10</output>
+            <input id="scen-pct" type="range" min="5" max="30" step="1" value="10"></label>
+          <label class="slider-row">Max interventions per hex (K) <output id="scen-k-out">3</output>
+            <input id="scen-k" type="range" min="1" max="10" step="1" value="3"></label>
+        </div>
+        <button id="btn-scen" class="btn primary">Run population optimization</button>
+        <span id="scen-status" class="muted small" role="status"></span>
+        <div id="scen-result" hidden>
+          <h4>Population result (targeted hexes only)</h4>
+          <div class="metrics three">
+            <div class="metric"><div class="m-label">Hexes targeted</div><div id="sm-n" class="m-value"></div></div>
+            <div class="metric"><div class="m-label">Mean baseline vulnerability</div><div id="sm-base" class="m-value"></div></div>
+            <div class="metric"><div class="m-label">Mean optimized vulnerability</div><div id="sm-opt" class="m-value"></div><div id="sm-delta" class="m-delta"></div></div>
+          </div>
+          <div class="two wide-left">
+            <div>
+              <h4>ΔVulnerability map</h4>
+              <div id="delta-map" class="map small-map" aria-label="Map of vulnerability change from population optimization"></div>
+            </div>
+            <div>
+              <h4>Which variables got recommended, across targeted hexes</h4>
+              <div id="usage-chart"></div>
+              <p id="usage-empty" class="muted" hidden>No beneficial moves found for the targeted hexes.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-sliders" role="tabpanel" aria-labelledby="tab-sliders" hidden>
+        <div id="sliders"></div>
+      </section>
+
+      <section id="panel-why" role="tabpanel" aria-labelledby="tab-why" hidden>
+        <div class="two">
+          <div>
+            <h4>Main effects</h4>
+            <div class="toplists">
+              <div id="main-inc"></div>
+              <div id="main-dec"></div>
+            </div>
+            <div id="main-chart"></div>
+          </div>
+          <div>
+            <h4>Interaction effects</h4>
+            <div class="toplists">
+              <div id="int-inc"></div>
+              <div id="int-dec"></div>
+            </div>
+            <p class="muted small">Pairwise terms selected during training (top-20 by RF importance).</p>
+            <div id="int-chart"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="panel-opt" role="tabpanel" aria-labelledby="tab-opt" hidden>
+        <fieldset class="modes">
+          <legend>Mode</legend>
+          <div class="radios inline">
+            <label><input type="radio" name="optmode" value="actionable" checked> Feasible Only</label>
+            <label><input type="radio" name="optmode" value="exploratory"> Unconstrained</label>
+            <label><input type="radio" name="optmode" value="combined"> Feasible + Unconstrained</label>
+          </div>
+        </fieldset>
+        <p class="muted small">All three modes respect the project's frozen-variable rule: only Facilities/Services variables are ever touched. Socioeconomic, demographic, crime, hazard, roadway, hydrology, and land-cover variables are never candidates, in any mode.</p>
+        <p id="opt-caption" class="muted small"></p>
+        <label class="slider-row narrow">Max interventions (K) <output id="opt-k-out">5</output>
+          <input id="opt-k" type="range" min="1" max="10" step="1" value="5"></label>
+        <button id="btn-opt" class="btn primary">Run optimizer</button>
+        <div id="opt-result"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="js/snn.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

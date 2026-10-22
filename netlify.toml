@@ -1,0 +1,10 @@
+# Static site: no build step. Netlify serves this folder as-is.
+[build]
+  publish = "."
+
+# Model/data files change only when the model is retrained, so a short cache
+# keeps a re-deploy visible within minutes.
+[[headers]]
+  for = "/data/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"
